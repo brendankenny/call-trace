@@ -1,6 +1,6 @@
 # call-trace.js
 
-Super buggy and doesn't work for on most fairly normal code. Don't actually use this :)
+Super buggy and doesn't work for most fairly normal code. Don't actually use this :)
 
 Instruments a JavaScript file to record its call graph and (optionally) time spent in each function.
 
