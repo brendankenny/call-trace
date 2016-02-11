@@ -1,0 +1,22 @@
+{
+  "name": "call-trace",
+  "version": "0.0.1",
+  "description": "Simple function call graph instrumentation generator.",
+  "main": "call-trace.js",
+  "bin": "call-trace.js",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brendankenny/call-trace.git"
+  },
+  "author": "Brendan Kenny <bckenny@gmail.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/brendankenny/call-trace/issues"
+  },
+  "homepage": "https://github.com/brendankenny/call-trace#readme",
+  "devDependencies": {
+    "acorn": "^3.0.2",
+    "yargs": "^3.32.0"
+  }
+}
