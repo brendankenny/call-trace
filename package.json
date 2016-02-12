@@ -15,7 +15,7 @@
     "url": "https://github.com/brendankenny/call-trace/issues"
   },
   "homepage": "https://github.com/brendankenny/call-trace#readme",
-  "devDependencies": {
+  "dependencies": {
     "acorn": "^3.0.2",
     "yargs": "^3.32.0"
   }
