@@ -55,6 +55,40 @@ function walkAST(node, visitors, state) {
   })(node, state);
 }
 
+/**
+ * Extract a function identifier from the LHS of an assignment.
+ * @param {!Object} node
+ * @return {string}
+ */
+function functionIdFromAssignment(node) {
+  if (node.type === 'Identifier') {
+    return node.name;
+  }
+
+  if (node.type !== 'MemberExpression') {
+    throw new Error('unhandled AssignmentExpression LHS form');
+  }
+
+  var propertyName = '';
+  if (!node.computed) {
+    propertyName = node.property.name;
+  } else {
+    // Property is some type of expression. Only handling literals for now.
+    if (node.property.type === 'Literal') {
+      // TODO(bckenny): reject some literals (e.g. ones containing '.')
+      propertyName = node.property.value;
+    } else {
+      propertyName = '(anonymous)';
+    }
+  }
+
+  // Recursively parse object.
+  var id = functionIdFromAssignment(node.object) + '.' + propertyName;
+
+  // Strip out any 'prototype' before returning.
+  return id.replace('prototype.', '');
+}
+
 function extractFunctionInfo(code, node, parent) {
   var fnInfo = {
     range: node.range,
@@ -85,18 +119,17 @@ function extractFunctionInfo(code, node, parent) {
     }
 
     if (parent.type === 'AssignmentExpression') {
-      // TODO(bckenny): more sophisticated function name extraction from LHS.
-      fnInfo.name = code.slice(parent.left.range[0], parent.left.range[1]);
+      fnInfo.name = functionIdFromAssignment(parent.left);
       return fnInfo;
     }
 
     // Anonymous function instances
     if (parent.type === 'ReturnStatement' || parent.type === 'CallExpression') {
-      fnInfo.name = '[Anonymous]';
+      fnInfo.name = '(anonymous)';
       return fnInfo;
     }
 
-    throw new Error('unknown FunctionExpression at line ' + node.loc.start.line);
+    throw new Error('unhandled type of FunctionExpression at line ' + node.loc.start.line);
   }
 }
 
