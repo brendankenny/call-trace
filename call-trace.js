@@ -193,7 +193,11 @@ function createExitTrace(exit) {
 }
 
 function instrumentCode(src) {
-  var ast = acorn.parse(src, {ranges: true, locations: true});
+  var ast = acorn.parse(src, {
+    allowHashBang: true,
+    ranges: true,
+    locations: true
+  });
 
   // Dummy first function entry so that all functions have non-zero indices.
   var walkerState = {
