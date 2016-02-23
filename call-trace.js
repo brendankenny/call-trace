@@ -256,7 +256,7 @@ function instrumentCode(src) {
 
   walkerState.exitList.sort((a, b) => a.loc - b.loc);
 
-  // Move from the end of the source to the end, inserting traces along the way.
+  // Move from end of the source to beginning, inserting traces along the way.
   var i = walkerState.entryList.length - 1;
   var j = walkerState.exitList.length - 1;
   while (true) {
