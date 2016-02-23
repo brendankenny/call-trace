@@ -92,6 +92,8 @@ function functionIdFromAssignment(node) {
 function extractFunctionInfo(code, node, parent) {
   var fnInfo = {
     range: node.range,
+    lineNumber: node.loc.start.line,
+    columnNumber: node.loc.start.column,
     blockStart: node.body.range[0],
     blockEnd: node.body.range[1]
   };
@@ -139,8 +141,12 @@ function isFunction(node) {
       node.type === 'ArrowFunctionExpression';
 }
 
+/**
+ * Generate unique(ish) name for function based on name and position in source.
+ * @param {!Object} fnInfo
+ */
 function fnMapName(fnInfo) {
-  return fnInfo.name + '_' + fnInfo.blockStart;
+  return fnInfo.name + '_' + fnInfo.lineNumber + '_' + fnInfo.columnNumber;
 }
 
 function functionVisitor(node, state) {
@@ -277,11 +283,13 @@ function instrumentCode(src) {
 
   // Finally, add instrumentation preamble.
   var output = `var ${TRACE_VAR} = {\n` +
-    '  f: ' + JSON.stringify(walkerState.functionList) + ',\n' +
+    `  file: '${argv._[0]}',\n` +
+    `  fns: ['${walkerState.functionList.join('\',\'')}'],\n` +
     '  t: [],\n';
 
   if (argv.time) {
-    output += '  d: [],\n' +
+    output +=
+      '  d: [],\n' +
       '  in: function(id) {this.t.push(id); this.d.push(performance.now());},\n' +
       '  out: function(id) {this.t.push(-id); this.d.push(performance.now());}\n';
   } else {
