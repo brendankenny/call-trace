@@ -1,21 +1,12 @@
 /* jshint node:true, esnext: true */
 'use strict';
 
-// module.exports = createProfile;
+module.exports = createProfile;
 
 function createProfile(info) {
   var timestamps = info.d;
   var traces = info.t;
   var functionMap = info.fns;
-
-  var walkState = {
-    traceCursor: 0,
-    // TODO(bckenny): assumes a single file
-    fileName: info.file,
-    traces,
-    functionMap,
-    currentNodeId: 1
-  };
 
   // Chrome Debugging CPUProfileNode
   // https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfileNode
@@ -29,51 +20,20 @@ function createProfile(info) {
     callUID: functionMap.length,
     children: [],
     deoptReason: '',
-    id: walkState.currentNodeId++,
+    id: 1,
     positionTicks: []
   };
 
-  // Enter children calls until running out of trace. Children handle actual
-  // trace traversal (including incrementing traceCursor).
-  while (walkState.traceCursor < walkState.traces.length) {
-    var nextCallUid = walkState.traces[walkState.traceCursor];
-    if (nextCallUid < 0) {
-      throw new Error('next function id from head should always be positive');
-    }
+  var walkState = {
+    traceCursor: 0,
+    // TODO(bckenny): assumes a single file
+    fileName: info.file,
+    traces,
+    functionMap,
+    currentNodeId: 2
+  };
 
-    // Check if children array already contains this function.
-    // Linear search, but in practice very few children per node.
-    var childNode = null;
-    for (var i = 0; i < head.children.length; i++) {
-      if (head.children[i].callUID === nextCallUid) {
-        childNode = head.children[i];
-        break;
-      }
-    }
-    if (!childNode) {
-      var fnDesc = walkState.functionMap[nextCallUid];
-      childNode = {
-        functionName: getFunctionName(fnDesc),
-        // TODO(bckenny): assumes a single file
-        scriptId: '0',
-        url: walkState.fileName,
-        lineNumber: getLineNumber(fnDesc),
-        columnNumber: getColumnNumber(fnDesc),
-        hitCount: 0,
-        callUID: nextCallUid,
-        children: [],
-        deoptReason: '',
-        id: walkState.currentNodeId++,
-        positionTicks: []
-      };
-      head.children.push(childNode);
-    }
-    childNode.hitCount++;
-    // TODO(bckenny): CPUProfile samples/timestamps
-
-    // Walk down children's children's great-great-grandchildren or whatever.
-    walkTraceNode(walkState, childNode);
-  }
+  walkTraceNode(walkState, head);
 
   // Chrome Debugging CPUProfile object
   // https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfile
@@ -86,39 +46,58 @@ function createProfile(info) {
 }
 
 function walkTraceNode(walkState, node) {
-  if (node.callUID !== walkState.traces[walkState.traceCursor]) {
-    throw new Error('entered node doesn\'t match current point in trace');
+  // For non-head nodes, check we're in the right spot and enter ourselves.
+  if (node.id > 1) {
+    if (node.callUID !== walkState.traces[walkState.traceCursor]) {
+      throw new Error('entered node doesn\'t match current point in trace');
+    }
+    walkState.traceCursor++;
   }
-  walkState.traceCursor++;
 
-  // Walk children until exiting self.
-  while (walkState.traces[walkState.traceCursor] !== -node.callUID) {
+  // Walk children until told otherwise.
+  while (true) {
+    // If node is the head, exit at the end of the trace.
     if (walkState.traceCursor >= walkState.traces.length) {
-      throw new Error('trace ended before exiting all entered functions');
+      if (node.id === 1) {
+        return;
+      } else {
+        throw new Error('trace ended before exiting all entered functions');
+      }
     }
 
-    var nextCallUid = walkState.traces[walkState.traceCursor];
+    // If non-head node, exit when trace exits this node.
+    if (walkState.traces[walkState.traceCursor] === -node.callUID) {
+      // Move past self exit before returning back to parent node.
+      walkState.traceCursor++;
+      return;
+    }
 
-    // Check if children array already contains this function.
-    // Linear search, but in practice very few children per node.
+    var childCallUid = walkState.traces[walkState.traceCursor];
+    if (childCallUid < 0) {
+      throw new Error('invalid trace: exiting function not currently inside');
+    }
+
+    // Grab the child node for the next call, either already in the children
+    // array or created new.
     var childNode = null;
+    // Linear search, but in practice very few children per node.
     for (var i = 0; i < node.children.length; i++) {
-      if (node.children[i].callUID === nextCallUid) {
+      if (node.children[i].callUID === childCallUid) {
         childNode = node.children[i];
         break;
       }
     }
     if (!childNode) {
-      var fnDesc = walkState.functionMap[nextCallUid];
+      var fnDesc = /^(.+)_(\d+)_(\d+)$/.exec(walkState.functionMap[childCallUid]);
       childNode = {
-        functionName: getFunctionName(fnDesc),
+        functionName: fnDesc[1],
         // TODO(bckenny): assumes a single file
         scriptId: '0',
         url: walkState.fileName,
-        lineNumber: getLineNumber(fnDesc),
-        columnNumber: getColumnNumber(fnDesc),
+        lineNumber: parseInt(fnDesc[2], 10),
+        columnNumber: parseInt(fnDesc[3], 10),
         hitCount: 0,
-        callUID: nextCallUid,
+        callUID: childCallUid,
         children: [],
         deoptReason: '',
         id: walkState.currentNodeId++,
@@ -129,22 +108,7 @@ function walkTraceNode(walkState, node) {
     childNode.hitCount++;
     // TODO(bckenny): CPUProfile samples/timestamps
 
+    // Walk down children's children's great-great-grandchildren or whatever.
     walkTraceNode(walkState, childNode);
   }
-
-  // Move past self exit before returning back to parent node.
-  walkState.traceCursor++;
-}
-
-function getFunctionName(nameString) {
-  return /^(.+)_(\d+)_(\d+)$/.exec(nameString)[1];
-}
-
-function getColumnNumber(nameString) {
-  // CPUProfileNode Column number is 1 based.
-  return parseInt(/^(.+)_(\d+)_(\d+)$/.exec(nameString)[3], 10) + 1;
-}
-
-function getLineNumber(nameString) {
-  return parseInt(/^(.+)_(\d+)_(\d+)$/.exec(nameString)[2], 10);
 }
