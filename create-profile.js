@@ -21,7 +21,12 @@ function createProfile(traceInfo) {
     functionMap: traceInfo.fns,
     // Start with `id` 2 since head already uses `id` 1.
     currentNodeId: 2,
-    timestamps: traceInfo.d,
+
+    // Used if trace included timestamps.
+    timestamps: traceInfo.d ? traceInfo.d: null,
+
+    // Used if no timestamps, using call counts as a replacement.
+    timestampCounter: 0,
 
     profileSamples: [],
     profileTimestamps: []
@@ -29,12 +34,23 @@ function createProfile(traceInfo) {
 
   walkTraceNode(head, walkState);
 
+  var startTime;
+  var endTime;
+  if (traceInfo.d) {
+    // Use actual timestamps.
+    startTime = traceInfo.d[0];
+    endTime = traceInfo.d[traceInfo.d.length - 1];
+  } else {
+    startTime = 0;
+    endTime = walkState.timestampCounter;
+  }
+
   // Chrome debugging CPUProfile object
   return {
     head: head,
     // startTime and endTime are in seconds
-    startTime: traceInfo.d[0] / 1000,
-    endTime: traceInfo.d[traceInfo.d.length - 1] / 1000,
+    startTime: startTime / 1000,
+    endTime: endTime / 1000,
     samples: walkState.profileSamples,
     // timestamps are in microseconds
     timestamps: walkState.profileTimestamps
@@ -106,12 +122,15 @@ function walkTraceNode(node, walkState) {
       node.children.push(childNode);
     }
 
-    // TODO(bckenny): CPUProfile samples/timestamps when no timestamps
-
     // Register a sample hit for child entry.
     childNode.hitCount++;
     walkState.profileSamples.push(childNode.id);
-    var childEnterμs = walkState.timestamps[walkState.traceCursor] * 1000;
+    var childEnterμs;
+    if (walkState.timestamps) {
+      childEnterμs = walkState.timestamps[walkState.traceCursor] * 1000;
+    } else {
+      childEnterμs = walkState.timestampCounter++ * 1000;
+    }
     walkState.profileTimestamps.push(Math.floor(childEnterμs));
 
     // Enter child in trace.
@@ -120,21 +139,27 @@ function walkTraceNode(node, walkState) {
     // Walk down children's children's great-great-grandchildren or whatever.
     walkTraceNode(childNode, walkState);
 
-    // Register a sample hit for child exit.
+    // If timestamps are available, register a sample hit for child exit and
+    // then another for self node back on top.
     // TODO(bckenny): is this necessary? Or does it assume child goes until
     // parent is sampled again?
-    childNode.hitCount++;
-    walkState.profileSamples.push(childNode.id);
-    var childExitμs = walkState.timestamps[walkState.traceCursor] * 1000;
-    walkState.profileTimestamps.push(Math.floor(childExitμs));
+    if (walkState.timestamps) {
+      childNode.hitCount++;
+      walkState.profileSamples.push(childNode.id);
+      var childExitμs = walkState.timestamps[walkState.traceCursor] * 1000;
+      walkState.profileTimestamps.push(Math.floor(childExitμs));
 
-    // Exit child in trace.
-    walkState.traceCursor++;
+      // Exit child in trace.
+      walkState.traceCursor++;
 
-    // Child exit puts self back on top, so register a sample 1 μs after exit.
-    node.hitCount++;
-    walkState.profileSamples.push(node.id);
-    var selfReentryμs = childExitμs + 1;
-    walkState.profileTimestamps.push(Math.floor(selfReentryμs));
+      // Register a sample 1 μs after exit of child for parent node.
+      node.hitCount++;
+      walkState.profileSamples.push(node.id);
+      var selfReentryμs = childExitμs + 1;
+      walkState.profileTimestamps.push(Math.floor(selfReentryμs));
+    } else {
+      // Exit child in trace.
+      walkState.traceCursor++;
+    }
   }
 }
