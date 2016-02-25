@@ -30,6 +30,7 @@ function createProfile(info) {
     fileName: info.file,
     traces,
     functionMap,
+    // Start with `id` 2 since head is already 1.
     currentNodeId: 2,
     timestamps,
 
@@ -53,52 +54,29 @@ function createProfile(info) {
 }
 
 function walkTraceNode(walkState, node) {
-  // For non-head nodes, check we're in the right spot and enter ourselves.
-  if (node.id > 1) {
-    if (node.callUID !== walkState.traces[walkState.traceCursor]) {
-      throw new Error('entered node doesn\'t match current point in trace');
-    }
-    walkState.traceCursor++;
-  }
-
-  // Walk children until told otherwise.
-  while (true) {
-    // If node is the head, exit at the end of the trace.
+  // Walk children until told otherwise. If head node, exit at end of trace. If
+  // non-head node, exit when trace exits this node (negative callUID in trace).
+  while (!(node.id === 1 && walkState.traceCursor >= walkState.traces.length) &&
+      walkState.traces[walkState.traceCursor] !== -node.callUID) {
     if (walkState.traceCursor >= walkState.traces.length) {
-      if (node.id === 1) {
-        return;
-      } else {
-        throw new Error('trace ended before exiting all entered functions');
-      }
-    }
-
-    // If non-head node, exit when trace exits this node.
-    if (walkState.traces[walkState.traceCursor] === -node.callUID) {
-      // Close self on sample stack.
-      node.hitCount++;
-      walkState.profileSamples.push(node.id);
-      walkState.profileTimestamps.push(walkState.timestamps[walkState.traceCursor] * 1000);
-
-      // Move past self exit before returning back to parent node.
-      walkState.traceCursor++;
-      return;
+      throw new Error('trace ended before exiting all entered functions');
     }
 
     var childCallUid = walkState.traces[walkState.traceCursor];
     if (childCallUid < 0) {
-      throw new Error('invalid trace: exiting function not currently inside');
+      throw new Error('invalid trace: exit of function not currently inside.');
     }
 
-    // Grab the child node for the next call, either already in the children
-    // array or created new.
+    // Grab the child node for the next call.
     var childNode = null;
-    // Linear search, but in practice very few children per node.
+    // Linear search of children array (in practice very few children per node).
     for (var i = 0; i < node.children.length; i++) {
       if (node.children[i].callUID === childCallUid) {
         childNode = node.children[i];
         break;
       }
     }
+    // No existing child node, so create a new one.
     if (!childNode) {
       var fnDesc = /^(.+)_(\d+)_(\d+)$/.exec(walkState.functionMap[childCallUid]);
       childNode = {
@@ -119,17 +97,34 @@ function walkTraceNode(walkState, node) {
     }
 
     // TODO(bckenny): CPUProfile samples/timestamps when no timestamps
+
+    // Register a sample hit for child entry.
     childNode.hitCount++;
     walkState.profileSamples.push(childNode.id);
-    walkState.profileTimestamps.push(walkState.timestamps[walkState.traceCursor] * 1000);
+    var childEnterμs = walkState.timestamps[walkState.traceCursor] * 1000;
+    walkState.profileTimestamps.push(Math.floor(childEnterμs));
+
+    // Enter child in trace.
+    walkState.traceCursor++;
 
     // Walk down children's children's great-great-grandchildren or whatever.
     walkTraceNode(walkState, childNode);
 
-    // push self back on top of call stack in profile samples.
+    // Register a sample hit for child exit.
+    // TODO(bckenny): is this necessary? Or does it assume child goes until
+    // parent is sampled again?
+    childNode.hitCount++;
+    walkState.profileSamples.push(childNode.id);
+    var childExitμs = walkState.timestamps[walkState.traceCursor] * 1000;
+    walkState.profileTimestamps.push(Math.floor(childExitμs));
+
+    // Exit child in trace.
+    walkState.traceCursor++;
+
+    // Child exit puts self back on top, so register a sample 1 μs after exit.
     node.hitCount++;
     walkState.profileSamples.push(node.id);
-    // TODO(bckenny): shouldn't have to reference old traceCursor
-    walkState.profileTimestamps.push(walkState.timestamps[walkState.traceCursor - 1] * 1000 + 1);
+    var selfReentryμs = childExitμs + 1;
+    walkState.profileTimestamps.push(Math.floor(selfReentryμs));
   }
 }
