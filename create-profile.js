@@ -1,7 +1,7 @@
 /* jshint node:true, esnext: true */
 'use strict';
 
-module.exports = createProfile;
+// module.exports = createProfile;
 
 function createProfile(info) {
   var timestamps = info.d;
@@ -30,7 +30,11 @@ function createProfile(info) {
     fileName: info.file,
     traces,
     functionMap,
-    currentNodeId: 2
+    currentNodeId: 2,
+    timestamps,
+
+    profileSamples: [],
+    profileTimestamps: []
   };
 
   walkTraceNode(walkState, head);
@@ -39,9 +43,12 @@ function createProfile(info) {
   // https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfile
   return {
     head,
+    // startTime and endTime are in seconds
     startTime: timestamps[0] / 1000,
-    endTime: timestamps[timestamps.length - 1] / 1000
-    // TODO(bckenny): CPUProfile samples/timestamps
+    endTime: timestamps[timestamps.length - 1] / 1000,
+    samples: walkState.profileSamples,
+    // timestamps are in microseconds
+    timestamps: walkState.profileTimestamps
   };
 }
 
@@ -67,6 +74,11 @@ function walkTraceNode(walkState, node) {
 
     // If non-head node, exit when trace exits this node.
     if (walkState.traces[walkState.traceCursor] === -node.callUID) {
+      // Close self on sample stack.
+      node.hitCount++;
+      walkState.profileSamples.push(node.id);
+      walkState.profileTimestamps.push(walkState.timestamps[walkState.traceCursor] * 1000);
+
       // Move past self exit before returning back to parent node.
       walkState.traceCursor++;
       return;
@@ -105,10 +117,19 @@ function walkTraceNode(walkState, node) {
       };
       node.children.push(childNode);
     }
+
+    // TODO(bckenny): CPUProfile samples/timestamps when no timestamps
     childNode.hitCount++;
-    // TODO(bckenny): CPUProfile samples/timestamps
+    walkState.profileSamples.push(childNode.id);
+    walkState.profileTimestamps.push(walkState.timestamps[walkState.traceCursor] * 1000);
 
     // Walk down children's children's great-great-grandchildren or whatever.
     walkTraceNode(walkState, childNode);
+
+    // push self back on top of call stack in profile samples.
+    node.hitCount++;
+    walkState.profileSamples.push(node.id);
+    // TODO(bckenny): shouldn't have to reference old traceCursor
+    walkState.profileTimestamps.push(walkState.timestamps[walkState.traceCursor - 1] * 1000 + 1);
   }
 }
