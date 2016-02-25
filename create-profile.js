@@ -3,66 +3,88 @@
 
 // module.exports = createProfile;
 
-function createProfile(info) {
-  var timestamps = info.d;
-  var traces = info.t;
-  var functionMap = info.fns;
-
-  // Chrome Debugging CPUProfileNode
-  // https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfileNode
-  var head = {
-    functionName: '(root)',
-    scriptId: '0',
-    url: '',
-    lineNumber: 0,
-    columnNumber: 0,
-    hitCount: 0,
-    callUID: functionMap.length,
-    children: [],
-    deoptReason: '',
-    id: 1,
-    positionTicks: []
-  };
+/**
+ * Create a Chrome debugging CPUProfile object from a trace object.
+ * https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfile
+ * @param {{file: string, fns: !Array<string>, t: !Array<number>, d: Array<number>}} traceInfo
+ * @return {!CPUProfile}
+ */
+function createProfile(traceInfo) {
+  // Head uses unique `callUID` greater than all existing unique trace ids.
+  var head = new CPUProfileNode('', '(root)_0_0', traceInfo.fns.length, 1);
 
   var walkState = {
     traceCursor: 0,
     // TODO(bckenny): assumes a single file
-    fileName: info.file,
-    traces,
-    functionMap,
-    // Start with `id` 2 since head is already 1.
+    fileName: traceInfo.file,
+    trace: traceInfo.t,
+    functionMap: traceInfo.fns,
+    // Start with `id` 2 since head already uses `id` 1.
     currentNodeId: 2,
-    timestamps,
+    timestamps: traceInfo.d,
 
     profileSamples: [],
     profileTimestamps: []
   };
 
-  walkTraceNode(walkState, head);
+  walkTraceNode(head, walkState);
 
-  // Chrome Debugging CPUProfile object
-  // https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfile
+  // Chrome debugging CPUProfile object
   return {
-    head,
+    head: head,
     // startTime and endTime are in seconds
-    startTime: timestamps[0] / 1000,
-    endTime: timestamps[timestamps.length - 1] / 1000,
+    startTime: traceInfo.d[0] / 1000,
+    endTime: traceInfo.d[traceInfo.d.length - 1] / 1000,
     samples: walkState.profileSamples,
     // timestamps are in microseconds
     timestamps: walkState.profileTimestamps
   };
 }
 
-function walkTraceNode(walkState, node) {
+/**
+ * Creates an individual Chrome debugging CPUProfileNode.
+ * https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfileNode
+ * @constructor
+ * @struct
+ * @param {string} fileName
+ * @param {string} fnName
+ * @param {number} callUID
+ * @param {number} id
+ */
+function CPUProfileNode(fileName, fnName, callUID, id) {
+  var fnDesc = /^(.+)_(\d+)_(\d+)$/.exec(fnName);
+
+  this.functionName = fnDesc[1];
+  // TODO(bckenny): assumes a single file
+  this.scriptId = '0';
+  this.url = fileName;
+  this.lineNumber = parseInt(fnDesc[2], 10);
+  this.columnNumber = parseInt(fnDesc[3], 10);
+  this.hitCount = 0;
+  this.callUID = callUID;
+  this.children = [];
+  this.deoptReason = '';
+  this.id = id;
+  this.positionTicks = [];
+}
+
+/**
+ * Follows all function entrances and exits in trace from current cursor until
+ * current node is exited, recording them as profile samples and adding adding
+ * called functions to node's children.
+ * @param {!CPUProfileNode} node
+ * @param {!TraceWalkState} walkState
+ */
+function walkTraceNode(node, walkState) {
   // Walk children until told otherwise. If head node, exit at end of trace. If
   // non-head node, exit when trace exits this node (negative callUID in trace).
-  while (!(node.id === 1 && walkState.traceCursor >= walkState.traces.length) &&
-      walkState.traces[walkState.traceCursor] !== -node.callUID) {
-    if (walkState.traceCursor >= walkState.traces.length) {
+  while (!(node.id === 1 && walkState.traceCursor >= walkState.trace.length) &&
+      walkState.trace[walkState.traceCursor] !== -node.callUID) {
+    if (walkState.traceCursor >= walkState.trace.length) {
       throw new Error('trace ended before exiting all entered functions');
     }
 
-    var childCallUid = walkState.traces[walkState.traceCursor];
+    var childCallUid = walkState.trace[walkState.traceCursor];
     if (childCallUid < 0) {
       throw new Error('invalid trace: exit of function not currently inside.');
     }
@@ -78,21 +100,9 @@ function walkTraceNode(walkState, node) {
     }
     // No existing child node, so create a new one.
     if (!childNode) {
-      var fnDesc = /^(.+)_(\d+)_(\d+)$/.exec(walkState.functionMap[childCallUid]);
-      childNode = {
-        functionName: fnDesc[1],
-        // TODO(bckenny): assumes a single file
-        scriptId: '0',
-        url: walkState.fileName,
-        lineNumber: parseInt(fnDesc[2], 10),
-        columnNumber: parseInt(fnDesc[3], 10),
-        hitCount: 0,
-        callUID: childCallUid,
-        children: [],
-        deoptReason: '',
-        id: walkState.currentNodeId++,
-        positionTicks: []
-      };
+      childNode = new CPUProfileNode(walkState.fileName,
+          walkState.functionMap[childCallUid], childCallUid,
+          walkState.currentNodeId++);
       node.children.push(childNode);
     }
 
@@ -108,7 +118,7 @@ function walkTraceNode(walkState, node) {
     walkState.traceCursor++;
 
     // Walk down children's children's great-great-grandchildren or whatever.
-    walkTraceNode(walkState, childNode);
+    walkTraceNode(childNode, walkState);
 
     // Register a sample hit for child exit.
     // TODO(bckenny): is this necessary? Or does it assume child goes until
