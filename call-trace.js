@@ -5,10 +5,12 @@
 
 var fs = require('fs');
 
+var profileReporter = require('./create-profile.js');
+
 var acorn = require('acorn');
 var walk = require('acorn/dist/walk');
 
-var TRACE_VAR = 'wɔk';
+var TRACE_VAR = '_$wɔk';
 
 var argv = require('yargs')
     .usage('Usage: call-trace <file> [--time]')
@@ -291,11 +293,13 @@ function instrumentCode(src) {
     output +=
       '  d: [],\n' +
       '  in: function(id) {this.t.push(id); this.d.push(performance.now());},\n' +
-      '  out: function(id) {this.t.push(-id); this.d.push(performance.now());}\n';
+      '  out: function(id) {this.t.push(-id); this.d.push(performance.now());},\n';
   } else {
     output +=
       '  in: function(id) {this.t.push(id);},\n' +
-      '  out: function(id) {this.t.push(-id);}\n';
+      '  out: function(id) {this.t.push(-id);},\n';
   }
+  output += '  getReport: function() {return this._createProfile(this);},\n' +
+      '  _createProfile: ' + profileReporter.toString() + '\n';
   return output + '};\n' + src;
 }
