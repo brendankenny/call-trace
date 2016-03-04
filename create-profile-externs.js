@@ -11,7 +11,7 @@ var module;
 module.exports;
 
 /** @typedef {{
-	file: string,
+  file: string,
   fns: !Array<string>,
   t: !Array<number>,
   d: Array<number>

@@ -5,7 +5,7 @@
   "main": "call-trace.js",
   "bin": "call-trace.js",
   "scripts": {
-    "build": "./build"
+    "build": "./build.js"
   },
   "repository": {
     "type": "git",
