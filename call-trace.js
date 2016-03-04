@@ -5,7 +5,7 @@
 
 var fs = require('fs');
 
-var profileReporter = require('./create-profile.js');
+var profileReporter = require('./create-profile.min.js');
 
 var acorn = require('acorn');
 var walk = require('acorn/dist/walk');

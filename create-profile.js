@@ -6,35 +6,36 @@ module.exports = createProfile;
 /**
  * Create a Chrome debugging CPUProfile object from a trace object.
  * https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfile
- * @param {{file: string, fns: !Array<string>, t: !Array<number>, d: Array<number>}} traceInfo
+ * @param {!TraceInfo} traceInfo
  * @return {!CPUProfile}
  */
 function createProfile(traceInfo) {
   /**
    * Creates an individual Chrome debugging CPUProfileNode.
    * https://chromedevtools.github.io/debugger-protocol-viewer/Profiler/#type-CPUProfileNode
-   * @constructor
-   * @struct
    * @param {string} fileName
    * @param {string} fnName
    * @param {number} callUID
    * @param {number} id
+   * @return {!CPUProfileNode}
    */
-  function CPUProfileNode(fileName, fnName, callUID, id) {
+  function createCPUProfileNode(fileName, fnName, callUID, id) {
     var fnDesc = /^(.+)_(\d+)_(\d+)$/.exec(fnName);
 
-    this.functionName = fnDesc[1];
-    // TODO(bckenny): assumes a single file
-    this.scriptId = '0';
-    this.url = fileName;
-    this.lineNumber = parseInt(fnDesc[2], 10);
-    this.columnNumber = parseInt(fnDesc[3], 10);
-    this.hitCount = 0;
-    this.callUID = callUID;
-    this.children = [];
-    this.deoptReason = '';
-    this.id = id;
-    this.positionTicks = [];
+    return {
+      functionName: fnDesc[1],
+      // TODO(bckenny): assumes a single file
+      scriptId: '0',
+      url: fileName,
+      lineNumber: parseInt(fnDesc[2], 10),
+      columnNumber: parseInt(fnDesc[3], 10),
+      hitCount: 0,
+      callUID: callUID,
+      children: [],
+      deoptReason: '',
+      id: id,
+      positionTicks: []
+    };
   }
 
   /**
@@ -42,7 +43,7 @@ function createProfile(traceInfo) {
    * current node is exited, recording them as profile samples and adding adding
    * called functions to node's children.
    * @param {!CPUProfileNode} node
-   * @param {!TraceWalkState} walkState
+   * @param {!Object} walkState
    */
   function walkTraceNode(node, walkState) {
     // Walk children until told otherwise. If head node, exit at end of trace. If
@@ -69,7 +70,7 @@ function createProfile(traceInfo) {
       }
       // No existing child node, so create a new one.
       if (!childNode) {
-        childNode = new CPUProfileNode(walkState.fileName,
+        childNode = createCPUProfileNode(walkState.fileName,
             walkState.functionMap[childCallUid], childCallUid,
             walkState.currentNodeId++);
         node.children.push(childNode);
@@ -79,8 +80,8 @@ function createProfile(traceInfo) {
       childNode.hitCount++;
       walkState.profileSamples.push(childNode.id);
       var childEnterμs;
-      if (walkState.timestamps) {
-        childEnterμs = walkState.timestamps[walkState.traceCursor] * 1000;
+      if (walkState.traceTimestamps) {
+        childEnterμs = walkState.traceTimestamps[walkState.traceCursor] * 1000;
       } else {
         childEnterμs = walkState.timestampCounter++ * 1000;
       }
@@ -96,10 +97,10 @@ function createProfile(traceInfo) {
       // then another for self node back on top.
       // TODO(bckenny): is this necessary? Or does it assume child goes until
       // parent is sampled again?
-      if (walkState.timestamps) {
+      if (walkState.traceTimestamps) {
         childNode.hitCount++;
         walkState.profileSamples.push(childNode.id);
-        var childExitμs = walkState.timestamps[walkState.traceCursor] * 1000;
+        var childExitμs = walkState.traceTimestamps[walkState.traceCursor] * 1000;
         walkState.profileTimestamps.push(Math.floor(childExitμs));
 
         // Exit child in trace.
@@ -119,7 +120,7 @@ function createProfile(traceInfo) {
 
 
   // Head uses unique `callUID` greater than all existing unique trace ids.
-  var head = new CPUProfileNode('', '(root)_0_0', traceInfo.fns.length, 1);
+  var head = createCPUProfileNode('', '(root)_0_0', traceInfo.fns.length, 1);
 
   var walkState = {
     traceCursor: 0,
@@ -131,7 +132,7 @@ function createProfile(traceInfo) {
     currentNodeId: 2,
 
     // Used if trace included timestamps.
-    timestamps: traceInfo.d ? traceInfo.d: null,
+    traceTimestamps: traceInfo.d ? traceInfo.d: null,
 
     // Used if no timestamps, using call counts as a replacement.
     timestampCounter: 0,

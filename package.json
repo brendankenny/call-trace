@@ -4,7 +4,9 @@
   "description": "Simple function call graph instrumentation generator.",
   "main": "call-trace.js",
   "bin": "call-trace.js",
-  "scripts": {},
+  "scripts": {
+    "build": "./build"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/brendankenny/call-trace.git"
@@ -18,5 +20,8 @@
   "dependencies": {
     "acorn": "^3.0.2",
     "yargs": "^3.32.0"
+  },
+  "devDependencies": {
+    "google-closure-compiler": "^20160208.1.0"
   }
 }
