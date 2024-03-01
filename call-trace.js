@@ -242,6 +242,7 @@ function createExitTrace(exit) {
 function instrumentCode(src) {
   var ast = acorn.parse(src, {
     sourceType: 'module',
+    ecmaVersion: 'latest',
     allowHashBang: true,
     ranges: true,
     locations: true
