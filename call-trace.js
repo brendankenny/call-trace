@@ -8,7 +8,7 @@ var fs = require('fs');
 var profileReporter = require('./create-profile.min.js');
 
 var acorn = require('acorn');
-var walk = require('acorn/dist/walk');
+var walk = require('acorn-walk');
 
 var TRACE_VAR = '_$wɔk';
 
@@ -25,7 +25,8 @@ var argv = require('yargs')
     .argv;
 
 var src = fs.readFileSync(argv._[0], 'utf8');
-console.log(instrumentCode(src));
+const instrumentedCode = instrumentCode(src);
+console.log(instrumentedCode);
 
 // Adapted from acorn.walk.ancestor to do pre-order visits and track more state.
 function walkAST(node, visitors, state) {
@@ -100,9 +101,9 @@ function extractFunctionInfo(code, node, parent) {
     blockEnd: node.body.range[1]
   };
 
-  // TODO(bckenny): ArrowFunctionExpression
   if (node.type === 'ArrowFunctionExpression') {
-    throw new Error('arrow functions not yet supported.');
+    fnInfo.name = "(anon arrow)";
+    return fnInfo;
   }
 
   if (node.type === 'FunctionDeclaration') {
@@ -112,7 +113,7 @@ function extractFunctionInfo(code, node, parent) {
 
   if (node.type === 'FunctionExpression') {
     // If function expression has an identifier, just use that.
-    if (node.id && node.id.name) {
+    if (node.id?.name) {
       fnInfo.name = node.id.name;
       return fnInfo;
     }
@@ -132,7 +133,12 @@ function extractFunctionInfo(code, node, parent) {
       fnInfo.name = '(anonymous)';
       return fnInfo;
     }
+    if (parent.key.name) {
+      fnInfo.name = parent.key.name;
+      return fnInfo;
+    }
 
+    console.error({node});
     throw new Error('unhandled type of FunctionExpression at line ' + node.loc.start.line);
   }
 }
@@ -235,6 +241,8 @@ function createExitTrace(exit) {
 
 function instrumentCode(src) {
   var ast = acorn.parse(src, {
+    sourceType: 'module',
+    ecmaVersion: 'latest',
     allowHashBang: true,
     ranges: true,
     locations: true
